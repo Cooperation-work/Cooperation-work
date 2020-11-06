@@ -28,23 +28,11 @@ R = '\033[91m'
 W = '\033[0m'
 
 '''
-这个OSINT项目不仅是为了完成软工作业，以后还将可能使用到毕设当中。目标是成为一个个人缩水版网络空间搜索引擎
-
-初步具备如下功能：
-识别目标ip是否为蜜罐（shodan）（https://honeyscore.shodan.io/）可能要用到shodan api。【功能已经接近完成（将颜色部分添加即可）】
-从给定域名查询对应ip，再用此ip来查询属于此ip的域名（旁站查询）https://site.ip138.com/  【功能已经完成】
-从zoomeye获取目标信息
-
-下面部分稍稍做一下即可：
-whois查询
-（更多的在OSINT中找）
-
-
-
-主要运行逻辑：
-输入的数据：ip亦可，域名亦可。
-输入ip，直接进行zoomeye、shodan查询、旁站域名查询。
-输入域名，将域名经DNS解析成为ip地址，进行zoomeye、shodan查询、旁站查询，然后利用搜索引擎进行子域名查询。
+脚本运行主要逻辑：
+当：osint_obj = OSINTrecon(domain="domain.com")时【即用户指定的是域名】，可以调用以下方法：
+osint_ojb.ip2domain（） 、 osint_obj.zoomeye_recon() 、osint_obj.shodan_uav（）、osint_obj.google_uav（）
+osint_obj = OSINTrecon(ip="11.45.1.4")时【即用户指定的是ip地址】，可以调用以下方法：
+osint_ojb.ip2domain（） 、 osint_obj.zoomeye_recon() 、osint_obj.shodan_uav（）
 
 【重要的指示】：Zoomeye和shodan的token都通过config.ini来指定
 '''
@@ -106,7 +94,7 @@ class OSINTrecon():
     进行的功能：
     使用命令行进行shodan查询。只进行是否是蜜罐的查询
     返回的东西：
-    无论是运行成功还是运行错误，都会返回文本类指示。（带有颜色）
+    无论是运行成功还是运行错误，都会返回字符串。（带有颜色）
     '''
 
     def shodan_uav(self):  # 使用shodan来识别对方是否是蜜罐。（识别对象：ip）
@@ -151,8 +139,7 @@ class OSINTrecon():
     负责：
         1、提取hostSearch API返回的结果（部分）
         2、在ssl证书当中查找旁域
-    返回的dict格式如：
-    {'65.61.137.117:8080': {'port_num': 8080, 'os': '', 'device': '', 'application': 'Apache httpd'}, '65.61.137.117:443': {'port_num': 443, 'os': '', 'device': '', 'application': 'Apache httpd'}
+    
     '''
 
     def zoomeye_host_search_info_graping(self, target_data):
@@ -180,10 +167,8 @@ class OSINTrecon():
                 pass
         return dict
 
-    # 原始数据中null不是字符串类型，因此可能会出问题
     def zoomeye_web_search_info_graping(self, target_data):
         dict = {}
-        # dict 格式如：dict{'demo.testfire.net':{'site_ip':['65.61.137.117'],'waf':[]:'component':[],'system':[],'db':[],'header':'','framework':[],'webapp':''}}
         for i in target_data['matches']:
             site = i['site']
             self.subdomain.add(site)
@@ -202,7 +187,13 @@ class OSINTrecon():
     '''
     进行zoomeye中的信息侦察（主要是获取host信息、ssl证书、目标可能存在的漏洞等等）【因此这个模块还需要更多的完善】
     返回信息：一个列表，两样东西：[<状态>,<zoomeye中搜集到的信息（target_info，一个字典）>]
-    当请求出错的时候，<状态>就会显示出错的缘由，<信息>就是None。
+    当用户指定了ip地址的时候，进行host search；当用户指定了域名的时候，进行web search
+    字典内容如（进行web search时）：
+    {'demo.testfire.net':{'site_ip':['65.61.137.117'],'waf':[]:'component':[],'system':[],'db':[],'header':'','framework':[],'webapp':''}}
+    又如（进行host search）：
+    {'65.61.137.117:8080': {'port_num': 8080, 'os': '', 'device': '', 'application': 'Apache httpd'}, '65.61.137.117:443': {'port_num': 443, 'os': '', 'device': '', 'application': 'Apache httpd'}
+    
+    当请求出错的时候，<状态>就会显示出错的缘由（字符串类型），<信息>就是None。
     '''
 
     def zoomeye_recon(self):  # zoomeye搜索。zoomeye目前是负责进行目标漏洞的获取。该模块还未经详细的测试
@@ -350,36 +341,62 @@ class OSINTrecon():
         sub_domains = set(subdomains)
         return sub_domains
 
-    # 正常进行google搜索，返回一堆（可能是机器生成的）JS代码，无法分析。当我们禁用掉JS之后，即不会出现JS代码，从而使得网页源码可以分析。
-    # 此时爬虫要请求的就是禁用了JS代码之后的google搜索url。
-    # 如：https://www.google.com.hk/search?q=counting+2020&safe=strict&hl=zh-CN&gbv=1&sei=ELCkX5-LIZL7-QbCjILQDg
-    # "https://google.com/search?hl=zh-CN&q=site:testfire.net&btnG=Search&gbv=1&num=6
-    # 上面的url中，num是一个页面中显示的搜索结果条数数量。【只能在禁JS的环境中使用】
-    # 同时，为了规避验证码机制，还需要加入随机headers。
-    # 为了规避验证码机制，使用轮询google域名的方式进行搜集。（对google一个域名进行反复的请求，肯定会出问题，但是google在各个国家地区有百多个域名，这些域名不可能实现数据共享。）
-    # google子域名搜索采取的思路：1、site关键字相减法【考虑到google的搜索长度，最多减3次】；2、num参数设置成100【一页中显示100条内容】；3、随机UA；4、随机domain【先不考虑】
-    # google uav已经跟生成headers的模块联合。但是google-uav还需要进一步完善。当目标子域很多的时候，必须要使用到site减法【可能还得使用google domain轮询】。
+    '''
+    进行基于google的子域名查询
+    
+    函数运行原理：从User-Agent集合网站中获取一个随机的User-Agent作为请求的header，将（用户输入的）域名作为搜索的内容，进行搜索。
+    为了使得子域名搜集范围尽可能的广，方法进行了两次查询。查询规则如：当查询的域名为“testfire.net”时，第一次查询的关键字：site:testfire.net
+    查询出“evil.testfire.net”,"demo.testfire.net",'demo2.testfire.net',于是，第二次查询关键字如：
+    site:testfire.net -demo -evil -demo2 -<最多减7个子域>
+    
+    注意事项：
+    0、仅当用户输入了域名的时候该方法才有用
+    1、返回目标子域名的集合（可能是空集）；当返回值为None的时候，说明header信息可能有问题，重新运行一次（运气不好就需要多次）该方法就可能得到子域名集合（强烈建议在sleep一段时间之后再运行）。
+    2、由于仅进行了两次google内容爬取，因此没有使用google域名轮询技术。
+    3、第二次进行google查询时，使用的UA跟第一次的相同
+    4、请勿多次运行该方法（不可连续运行30次），以防止google封ip
+    '''
 
-    def google_uav(self):  # google等搜索引擎的子域名迭代查询是必要措施！【经实践证明，无需使用google api，使用特定爬虫姿势即可】
+    def google_uav(self):
         cookie = cookiejar.CookieJar()
         reverse_info = []
-        url = 'https://google.com/search?hl=zh-CN&q=site:testfire.net&btnG=Search&gbv=1&num=100'
+        url = 'https://google.com/search?hl=zh-CN&q={query}&btnG=Search&gbv=1&num=100'
         headers = self.get_fake_UA()
-        resp = requests.get(url.format(query='site:testfire.net'), headers=headers, cookies=cookie,
+        resp = requests.get(url.format(query='site:' + self.domain), headers=headers, cookies=cookie,
                             timeout=10)
         link_pattern = '(?s)(?i)([^>]*?)› [\w]*?</div>'  # 由于google返回页面中链接全部都在<div>标签当中，因此使用pyquery的话就很难区分开。此时使用正则是最为高效的方案
         sub_domains = re.findall(link_pattern, resp.text)
         self.sub_domains = self.clean_subdomain_data(sub_domains)
-        return self.sub_domains
-    
+        sub_string = list(self.sub_domains)
+        # print(sub_string)
+        for i in range(len(sub_string)):
+            p_index = sub_string[i].find('.')
+            sub_string[i] = sub_string[i][:p_index]
+        # print(sub_string)
 
-    def baidu_uav(self):
-        pass
+        query_string = 'site:' + self.domain
+        try:
+            for i in range(7):
+                query_string += ' -'
+                query_string += sub_string[i]
+            # print(query_string)
+            resp = requests.get(url.format(query=query_string), headers=headers, cookies=cookie,
+                                timeout=10)
+            link_pattern = '(?s)(?i)([^>]*?)› [\w]*?</div>'
+            sub_domains = re.findall(link_pattern, resp.text)
+            sub_domains_set = self.clean_subdomain_data(sub_domains)
+            for i in sub_domains_set:
+                self.sub_domains.add(i)
+
+            return self.sub_domains
+        except:  # 无效的header，建议重来。
+            # print(resp.text)
+            # print('header无效')
+            return None
 
 
-# TODO:把多进程给搞了，不然消耗时间过多。
 if __name__ == "__main__":
-    uav = OSINTrecon(ip='65.61.137.117')
+    uav = OSINTrecon(domain='testfire.net')
     # print(uav.ip2domain())
     # print(uav.shodan_uav())测试成功
     # print('这是搜索结果', uav.zoomeye_recon())
