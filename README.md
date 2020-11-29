@@ -12,7 +12,7 @@
 1、安装所需包：
 
 ```powershell
-pip freeze >requirements.txt
+pip install -r requirements.txt
 ```
 
 2、执行flask目录下的`index.py`：
